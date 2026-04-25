@@ -1,0 +1,32 @@
+{
+  "entities": {
+    "Obra": {
+      "title": "Obra",
+      "description": "Registro de obra da CBC Solar",
+      "type": "object",
+      "properties": {
+        "cliente": { "type": "string", "description": "Nome do cliente" },
+        "funcionario": { "type": "string", "description": "Funcionário responsável" },
+        "pagamento": { "type": "string", "description": "Status ou forma de pagamento" },
+        "dataChegadaPlacas": { "type": "string", "format": "date", "description": "Data de chegada das placas" },
+        "dataContrato": { "type": "string", "format": "date", "description": "Data do contrato" },
+        "qtPlaca": { "type": "number", "description": "Quantidade de placas" },
+        "dataObra": { "type": "string", "format": "date", "description": "Data de início da obra" },
+        "dataConclusao": { "type": "string", "format": "date", "description": "Data de conclusão da obra" },
+        "equipe": { "type": "string", "description": "Equipe responsável" },
+        "local": { "type": "string", "description": "Local da obra" },
+        "obs": { "type": "string", "description": "Observações gerais" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["cliente", "dataContrato"]
+    }
+  },
+  "firestore": {
+    "obras": {
+      "schema": "Obra",
+      "description": "Coleção principal de obras"
+    }
+  }
+}
