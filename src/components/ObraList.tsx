@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Edit2, Trash2, Search, Filter, Download, Upload, Plus, ChevronDown, Clock, X, Eye, Calendar, User, MapPin, CreditCard, MessageSquare, Briefcase } from 'lucide-react';
+import { Edit2, Trash2, Search, Filter, Download, Upload, Plus, ChevronDown, Clock, X, Eye, Calendar, User, MapPin, CreditCard, MessageSquare, Briefcase, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Obra } from '../types';
 import { format, parseISO, isAfter, isBefore, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -16,6 +16,9 @@ interface ObraListProps {
   onAdd: () => void;
 }
 
+type SortField = keyof Obra | 'dias';
+type SortOrder = 'asc' | 'desc';
+
 export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onExport, onAdd }: ObraListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEquipe, setFilterEquipe] = useState('');
@@ -25,42 +28,98 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
   const [endDate, setEndDate] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewingObra, setViewingObra] = useState<Obra | null>(null);
+  const [sortField, setSortField] = useState<SortField>('dataContrato');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  const filteredObras = obras.filter((obra) => {
-    const matchesSearch = 
-      obra.cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      obra.funcionario.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      obra.local.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesEquipe = filterEquipe ? (obra.equipe === filterEquipe) : true;
-    const matchesPagamento = filterPagamento ? (obra.pagamento === filterPagamento) : true;
+  const filteredObras = useMemo(() => {
+    return obras.filter((obra) => {
+      const matchesSearch = 
+        obra.cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        obra.funcionario.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        obra.local.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesEquipe = filterEquipe ? (obra.equipe === filterEquipe) : true;
+      const matchesPagamento = filterPagamento ? (obra.pagamento === filterPagamento) : true;
 
-    let matchesDate = true;
-    if (startDate || endDate) {
-      const contractDate = parseFlexibleDate(obra.dataContrato);
-      if (contractDate) {
-        if (startDate) {
-          const s = parseFlexibleDate(startDate);
-          if (s) matchesDate = matchesDate && (isAfter(contractDate, s) || isSameDay(contractDate, s));
-        }
-        if (endDate) {
-          const e = parseFlexibleDate(endDate);
-          if (e) matchesDate = matchesDate && (isBefore(contractDate, e) || isSameDay(contractDate, e));
+      let matchesDate = true;
+      if (startDate || endDate) {
+        const contractDate = parseFlexibleDate(obra.dataContrato);
+        if (contractDate) {
+          if (startDate) {
+            const s = parseFlexibleDate(startDate);
+            if (s) matchesDate = matchesDate && (isAfter(contractDate, s) || isSameDay(contractDate, s));
+          }
+          if (endDate) {
+            const e = parseFlexibleDate(endDate);
+            if (e) matchesDate = matchesDate && (isBefore(contractDate, e) || isSameDay(contractDate, e));
+          }
         }
       }
-    }
+      
+      return matchesSearch && matchesEquipe && matchesPagamento && matchesDate;
+    });
+  }, [obras, searchTerm, filterEquipe, filterPagamento, startDate, endDate]);
+
+  const sortedObras = useMemo(() => {
+    const sorted = [...filteredObras];
     
-    return matchesSearch && matchesEquipe && matchesPagamento && matchesDate;
-  });
+    sorted.sort((a, b) => {
+      let aVal: any = a[sortField as keyof Obra];
+      let bVal: any = b[sortField as keyof Obra];
+
+      if (sortField === 'dias') {
+        aVal = calculateDiasCorrido(a.dataContrato, a.dataConclusao);
+        bVal = calculateDiasCorrido(b.dataContrato, b.dataConclusao);
+      }
+
+      // Handle dates specifically if they are strings
+      if (['dataContrato', 'dataObra', 'dataConclusao', 'dataChegadaPlacas'].includes(sortField)) {
+        const dateA = parseFlexibleDate(aVal as string) || new Date(0);
+        const dateB = parseFlexibleDate(bVal as string) || new Date(0);
+        return sortOrder === 'asc' 
+          ? dateA.getTime() - dateB.getTime()
+          : dateB.getTime() - dateA.getTime();
+      }
+
+      // Default string/number comparison
+      if (aVal === undefined || aVal === null) aVal = '';
+      if (bVal === undefined || bVal === null) bVal = '';
+
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+      if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  }, [filteredObras, sortField, sortOrder]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIndicator = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown size={10} className="ml-1 opacity-30 inline" />;
+    return sortOrder === 'asc' 
+      ? <ArrowUp size={10} className="ml-1 text-blue-600 inline" />
+      : <ArrowDown size={10} className="ml-1 text-blue-600 inline" />;
+  };
 
   const uniqueEquipes = Array.from(new Set(obras.map(o => o.equipe).filter(Boolean)));
   const uniquePagamentos = Array.from(new Set(obras.map(o => o.pagamento).filter(Boolean)));
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === filteredObras.length) {
+    if (selectedIds.length === sortedObras.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(filteredObras.map(o => o.id));
+      setSelectedIds(sortedObras.map(o => o.id));
     }
   };
 
@@ -233,24 +292,46 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className="xls-th min-w-[150px]">Cliente</th>
-                <th className="xls-th min-w-[120px]">Funcionário</th>
-                <th className="xls-th min-w-[100px]">Pagamento</th>
-                <th className="xls-th min-w-[100px] text-center">Chegada Placas</th>
-                <th className="xls-th min-w-[100px] text-center">Data Contrato</th>
-                <th className="xls-th min-w-[50px] text-center">Dias</th>
-                <th className="xls-th min-w-[70px] text-center">Qt Placa</th>
-                <th className="xls-th min-w-[100px] text-center">Data Obra</th>
-                <th className="xls-th min-w-[100px] text-center">Conclusão</th>
-                <th className="xls-th min-w-[120px]">Equipe</th>
-                <th className="xls-th min-w-[150px]">Local</th>
+                <th className="xls-th min-w-[150px] cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('cliente')}>
+                  <div className="flex items-center">Cliente <SortIndicator field="cliente" /></div>
+                </th>
+                <th className="xls-th min-w-[120px] cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('funcionario')}>
+                  <div className="flex items-center">Funcionário <SortIndicator field="funcionario" /></div>
+                </th>
+                <th className="xls-th min-w-[100px] cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('pagamento')}>
+                  <div className="flex items-center">Pagamento <SortIndicator field="pagamento" /></div>
+                </th>
+                <th className="xls-th min-w-[100px] text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('dataChegadaPlacas')}>
+                  <div className="flex items-center justify-center">Chegada Placas <SortIndicator field="dataChegadaPlacas" /></div>
+                </th>
+                <th className="xls-th min-w-[100px] text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('dataContrato')}>
+                  <div className="flex items-center justify-center">Data Contrato <SortIndicator field="dataContrato" /></div>
+                </th>
+                <th className="xls-th min-w-[50px] text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('dias')}>
+                  <div className="flex items-center justify-center">Dias <SortIndicator field="dias" /></div>
+                </th>
+                <th className="xls-th min-w-[70px] text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('qtPlaca')}>
+                  <div className="flex items-center justify-center">Qt Placa <SortIndicator field="qtPlaca" /></div>
+                </th>
+                <th className="xls-th min-w-[100px] text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('dataObra')}>
+                  <div className="flex items-center justify-center">Data Obra <SortIndicator field="dataObra" /></div>
+                </th>
+                <th className="xls-th min-w-[100px] text-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('dataConclusao')}>
+                  <div className="flex items-center justify-center">Conclusão <SortIndicator field="dataConclusao" /></div>
+                </th>
+                <th className="xls-th min-w-[120px] cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('equipe')}>
+                  <div className="flex items-center">Equipe <SortIndicator field="equipe" /></div>
+                </th>
+                <th className="xls-th min-w-[150px] cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => handleSort('local')}>
+                  <div className="flex items-center">Local <SortIndicator field="local" /></div>
+                </th>
                 <th className="xls-th min-w-[200px]">Observações</th>
                 <th className="xls-th w-20 text-center">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {filteredObras.length > 0 ? (
-                filteredObras.map((obra) => {
+              {sortedObras.length > 0 ? (
+                sortedObras.map((obra) => {
                   const dias = calculateDiasCorrido(obra.dataContrato, obra.dataConclusao);
                   return (
                     <motion.tr
