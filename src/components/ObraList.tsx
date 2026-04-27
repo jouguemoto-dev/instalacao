@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Edit2, Trash2, Search, Filter, Download, Upload, Plus, ChevronDown, Clock, X, Eye, Calendar, User, MapPin, CreditCard, MessageSquare, Briefcase, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Edit2, Trash2, Search, Filter, Download, Upload, Plus, ChevronDown, Clock, X, Eye, Calendar, User, MapPin, CreditCard, MessageSquare, Briefcase, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
 import { Obra } from '../types';
 import { format, parseISO, isAfter, isBefore, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -24,15 +24,19 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
   const [filterEquipe, setFilterEquipe] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterPagamento, setFilterPagamento] = useState('');
+  const [filterFuncionario, setFilterFuncionario] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pendente' | 'concluido'>('all');
+  const [dateFilterType, setDateFilterType] = useState<'dataContrato' | 'dataChegadaPlacas' | 'dataObra' | 'dataConclusao'>('dataContrato');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewingObra, setViewingObra] = useState<Obra | null>(null);
   const [sortField, setSortField] = useState<SortField>('dataContrato');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false);
 
   const filteredObras = useMemo(() => {
-    return obras.filter((obra) => {
+    let result = obras.filter((obra) => {
       const matchesSearch = 
         obra.cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
         obra.funcionario.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -40,25 +44,51 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
       
       const matchesEquipe = filterEquipe ? (obra.equipe === filterEquipe) : true;
       const matchesPagamento = filterPagamento ? (obra.pagamento === filterPagamento) : true;
+      const matchesFuncionario = filterFuncionario ? (obra.funcionario === filterFuncionario) : true;
+      
+      const matchesStatus = filterStatus === 'all' 
+        ? true 
+        : filterStatus === 'concluido' 
+          ? !!obra.dataConclusao 
+          : !obra.dataConclusao;
 
       let matchesDate = true;
       if (startDate || endDate) {
-        const contractDate = parseFlexibleDate(obra.dataContrato);
-        if (contractDate) {
+        const dateToCompare = parseFlexibleDate(obra[dateFilterType]);
+        if (dateToCompare) {
           if (startDate) {
             const s = parseFlexibleDate(startDate);
-            if (s) matchesDate = matchesDate && (isAfter(contractDate, s) || isSameDay(contractDate, s));
+            if (s) matchesDate = matchesDate && (isAfter(dateToCompare, s) || isSameDay(dateToCompare, s));
           }
           if (endDate) {
             const e = parseFlexibleDate(endDate);
-            if (e) matchesDate = matchesDate && (isBefore(contractDate, e) || isSameDay(contractDate, e));
+            if (e) matchesDate = matchesDate && (isBefore(dateToCompare, e) || isSameDay(dateToCompare, e));
           }
+        } else {
+          // If the date field is empty but we have a date filter, it shouldn't match
+          matchesDate = false;
         }
       }
       
-      return matchesSearch && matchesEquipe && matchesPagamento && matchesDate;
+      return matchesSearch && matchesEquipe && matchesPagamento && matchesFuncionario && matchesStatus && matchesDate;
     });
-  }, [obras, searchTerm, filterEquipe, filterPagamento, startDate, endDate]);
+
+    if (showOnlyDuplicates) {
+      // Consider duplicate if same client and same location
+      const counts = new Map<string, number>();
+      obras.forEach(o => {
+        const key = `${o.cliente?.trim().toLowerCase()}|${o.local?.trim().toLowerCase()}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+
+      result = result.filter(o => {
+        const key = `${o.cliente?.trim().toLowerCase()}|${o.local?.trim().toLowerCase()}`;
+        return (counts.get(key) || 0) > 1;
+      });
+    }
+
+    return result;
+  }, [obras, searchTerm, filterEquipe, filterPagamento, filterFuncionario, filterStatus, dateFilterType, startDate, endDate, showOnlyDuplicates]);
 
   const sortedObras = useMemo(() => {
     const sorted = [...filteredObras];
@@ -114,6 +144,7 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
 
   const uniqueEquipes = Array.from(new Set(obras.map(o => o.equipe).filter(Boolean)));
   const uniquePagamentos = Array.from(new Set(obras.map(o => o.pagamento).filter(Boolean)));
+  const uniqueFuncionarios = Array.from(new Set(obras.map(o => o.funcionario).filter(Boolean)));
 
   const toggleSelectAll = () => {
     if (selectedIds.length === sortedObras.length) {
@@ -188,14 +219,17 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
             >
                 Filtros
             </button>
-            <select 
-                value={filterEquipe}
-                onChange={(e) => setFilterEquipe(e.target.value)}
-                className="text-xs border border-slate-200 rounded px-3 py-1.5 bg-white text-slate-600 focus:ring-blue-500 outline-none"
+            <button
+                onClick={() => setShowOnlyDuplicates(!showOnlyDuplicates)}
+                className={cn(
+                    "px-3 py-1.5 rounded border border-slate-200 text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-2",
+                    showOnlyDuplicates ? "bg-amber-100 text-amber-700 border-amber-200" : "bg-white text-slate-600 hover:bg-slate-50"
+                )}
+                title="Encontrar possíveis duplicidades (mesmo cliente e local)"
             >
-                <option value="">Filtrar por Equipe</option>
-                {uniqueEquipes.map(eq => <option key={eq} value={eq}>{eq}</option>)}
-            </select>
+                <AlertTriangle size={12} />
+                {showOnlyDuplicates ? "Duplicados" : "Duplicados"}
+            </button>
             <div className="flex items-center gap-2">
                 <button
                     onClick={onAdd}
@@ -228,7 +262,21 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="bg-white border border-slate-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-4 gap-4 shadow-sm">
+            <div className="bg-white border border-slate-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-4 shadow-sm mb-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Equipe</label>
+                <select
+                  value={filterEquipe}
+                  onChange={(e) => setFilterEquipe(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  <option value="">Todas as Equipes</option>
+                  {uniqueEquipes.map((eq) => (
+                    <option key={eq} value={eq}>{eq}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase text-slate-400">Status Pagamento</label>
                 <select
@@ -242,8 +290,50 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
                   ))}
                 </select>
               </div>
+              
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-slate-400">Data Inicial (Contrato)</label>
+                <label className="text-[10px] font-bold uppercase text-slate-400">Funcionário</label>
+                <select
+                  value={filterFuncionario}
+                  onChange={(e) => setFilterFuncionario(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  <option value="">Todos os Funcionários</option>
+                  {uniqueFuncionarios.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Status Obra</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  <option value="all">Pendente & Concluído</option>
+                  <option value="pendente">Apenas Pendentes</option>
+                  <option value="concluido">Apenas Concluídas</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Base da Data</label>
+                <select
+                  value={dateFilterType}
+                  onChange={(e) => setDateFilterType(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-600"
+                >
+                  <option value="dataContrato">Data de Contrato</option>
+                  <option value="dataChegadaPlacas">Chegada de Placas</option>
+                  <option value="dataObra">Data da Obra</option>
+                  <option value="dataConclusao">Conclusão</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Data Inicial</label>
                 <input
                   type="date"
                   value={startDate}
@@ -252,7 +342,7 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-slate-400">Data Final (Contrato)</label>
+                <label className="text-[10px] font-bold uppercase text-slate-400">Data Final</label>
                 <input
                   type="date"
                   value={endDate}
@@ -260,17 +350,22 @@ export function ObraList({ obras, onEdit, onDelete, onBulkDelete, onImport, onEx
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-600"
                 />
               </div>
-              <div className="flex items-end">
+              <div className="md:col-span-4 lg:col-span-6 flex items-end justify-end">
                 <button
                     onClick={() => {
                         setFilterEquipe('');
                         setFilterPagamento('');
+                        setFilterFuncionario('');
+                        setFilterStatus('all');
+                        setDateFilterType('dataContrato');
                         setStartDate('');
                         setEndDate('');
+                        setSearchTerm('');
+                        setShowOnlyDuplicates(false);
                     }}
-                    className="w-full py-1.5 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors"
+                    className="px-8 py-2 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors border border-slate-200"
                 >
-                    Limpar Filtros
+                    Limpar Todos os Filtros
                 </button>
               </div>
             </div>
